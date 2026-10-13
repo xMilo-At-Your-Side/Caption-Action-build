@@ -28,9 +28,9 @@ jobs:
       PROBE_REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
       PROBE_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
       PROBE_SOURCE_REPOSITORY: Hatsunama/Caption-Action
-      # Exact root-reviewed runtime source commit B.
+      # Exact root-reviewed runtime source commit.
       # Never substitute the organization workflow's github.sha here.
-      PROBE_COMMIT: '893572ac39c32fdebd7bf7ecdc7652f545f4eb92'
+      PROBE_COMMIT: '55d7d6b64b0a74589f891fd5e0bdf91b52377c16'
       PROBE_EXECUTION_COMMIT: ${{ github.sha }}
       PROBE_APPROVED_EXECUTION_COMMIT: ${{ inputs.reviewed_execution_commit }}
       PROBE_CELL: api36
@@ -147,6 +147,10 @@ jobs:
                              object_pairs_hook=unique_pairs, parse_constant=reject_constant)
           if not isinstance(facts, dict):
               raise SystemExit('EVIDENCE_JSON_ROOT_NOT_OBJECT')
+          import sys
+          sys.path.insert(0, 'tools/caption-muted-runtime')
+          from failure_diagnostics import validate_public_failure
+          validate_public_failure(facts)
           if facts.get('status') not in ('INVENTORY_STOPPED', 'BLOCKED', 'cleanup-failed'):
               raise SystemExit('EVIDENCE_STATUS_UNKNOWN')
           if any(facts.get(key) is not False for key in ('runtime_pass', 'capture_started', 'permissions_granted')):
