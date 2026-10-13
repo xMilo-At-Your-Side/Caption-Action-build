@@ -1,0 +1,107 @@
+name: Caption synthetic probe unsigned validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/caption-probe-build.yml
+permissions:
+  contents: read
+concurrency:
+  group: caption-probe-build-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.repository == 'xMilo-At-Your-Side/Caption-Action-build' && github.event.repository.private == false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+        working-directory: diagnostics/capture-probe
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: Hatsunama/Caption-Action
+          ref: 9a7fb09b778d3832580c3c24fb3cc0ab2e2811ce
+          persist-credentials: false
+          sparse-checkout: diagnostics/capture-probe
+      - name: Verify reviewed source and capacity
+        run: |
+          set -euo pipefail
+          echo "GRADLE_USER_HOME=$RUNNER_TEMP/caption-probe-gradle" >> "$GITHUB_ENV"
+          test "$(git rev-parse HEAD)" = 9a7fb09b778d3832580c3c24fb3cc0ab2e2811ce
+          sha256sum --check SOURCE_SHA256SUMS
+          python3 - <<'PY'
+          from pathlib import Path
+          mem = dict(line.split(':', 1) for line in Path('/proc/meminfo').read_text().splitlines())
+          assert int(mem['MemAvailable'].split()[0]) >= 4718592, 'Need 4.5 GiB available RAM; no retry or larger runner'
+          PY
+          python3 scripts/check-probe-contract.py
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          gradle-version: '8.13'
+          cache-disabled: true
+      - name: Configure isolated Android SDK
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=$RUNNER_TEMP/caption-probe-sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$RUNNER_TEMP/caption-probe-sdk" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/caption-probe-sdk/licenses"
+          # Reuse only the standard Android SDK agreement already approved for Caption.
+          printf '%s\n' '24333f8a63b6825ea9c5514f83c2829b004d1fee' > "$RUNNER_TEMP/caption-probe-sdk/licenses/android-sdk-license"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4
+        with:
+          accept-android-sdk-licenses: false
+          packages: ''
+      - name: Install exact required SDK packages without new acceptance
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0' < /dev/null
+      - name: Full Gradle unit tests, unsigned debug assembly, debug lint
+        run: gradle :app:testDebugUnitTest :app:assembleDebug :app:lintDebug --no-daemon --no-build-cache --max-workers=1 --stacktrace
+      - name: Verbatim lifecycle fixture and 32-test suite
+        run: python3 scripts/test_launch_lifecycle.py ci
+      - name: Verify complete results and unsigned candidate
+        run: python3 scripts/verify-ci-results.py
+      - name: Preserve textual diagnostic evidence in the run log
+        if: always()
+        run: |
+          for f in evidence/early-stop-ci/compile.txt evidence/early-stop-ci/tests.txt evidence/early-stop-ci/receipt.json app/build/reports/lint-results-debug.txt; do
+            if [ -f "$f" ]; then printf '\n--- %s ---\n' "$f"; cat "$f"; fi
+          done
+      - name: Stage bounded unsigned artifact with provenance
+        run: |
+          set -euo pipefail
+          python3 - <<'PYCODE'
+          from pathlib import Path
+          import hashlib, json, os, shutil
+          r=Path.cwd()
+          output=r/'artifact-stage'
+          output.mkdir()
+          apks=list((r/'app/build/outputs/apk/debug').glob('*.apk'))
+          assert len(apks)==1
+          apk=apks[0]
+          receipt=json.loads((r/'ci-receipt.json').read_text())
+          assert receipt['unsigned'] is True and receipt['runtime_tested'] is False
+          assert receipt['apk_sha256']==hashlib.sha256(apk.read_bytes()).hexdigest()
+          assert 0 < apk.stat().st_size <= 15 * 1024 * 1024
+          shutil.copyfile(apk,output/'capture-probe-unsigned.apk')
+          provenance={'source_repository':'Hatsunama/Caption-Action','source_commit':'9a7fb09b778d3832580c3c24fb3cc0ab2e2811ce','source_tree':'d760d67a67a20a72ef410e15e6c812952239f943','source_directory':'diagnostics/capture-probe','workflow_repository':os.environ['GITHUB_REPOSITORY'],'workflow_commit':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'runtime_tested':False,'release':False,'signed':False,'verification':receipt}
+          (output/'provenance.json').write_text(json.dumps(provenance,indent=2)+'\n')
+          (output/'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(output.iterdir())))
+          files=list(output.iterdir())
+          assert len(files)==3 and sum(p.stat().st_size for p in files) <= 16 * 1024 * 1024
+          print('Bounded artifact bytes:',sum(p.stat().st_size for p in files))
+          PYCODE
+      - name: Retain unsigned probe and provenance for one day
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: caption-probe-unsigned-${{ github.run_id }}
+          path: diagnostics/capture-probe/artifact-stage/*
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+          include-hidden-files: false
+      # No secrets, signing, install, runtime/device, cache, production build or deployment.
