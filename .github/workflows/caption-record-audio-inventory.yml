@@ -1,0 +1,186 @@
+# UNPUBLISHED CANDIDATE: root reviews publication and one manual dispatch separately.
+# Exact asset/source/identity binding is approved only for own-dialog inventory.
+# No permission grant, projection, capture, phone target or automatic trigger.
+name: Caption RECORD_AUDIO dialog inventory
+'on':
+  workflow_dispatch:
+    inputs:
+      reviewed_execution_commit:
+        description: 'Exact root-reviewed organization workflow commit SHA'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: caption-record-audio-inventory
+  cancel-in-progress: false
+jobs:
+  inventory:
+    if: >-
+      github.event.repository.private == false &&
+      github.event.repository.visibility == 'public' &&
+      github.repository == 'xMilo-At-Your-Side/Caption-Action-build' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PROBE_REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+      PROBE_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+      PROBE_SOURCE_REPOSITORY: Hatsunama/Caption-Action
+      # Exact root-reviewed runtime source commit B.
+      # Never substitute the organization workflow's github.sha here.
+      PROBE_COMMIT: '893572ac39c32fdebd7bf7ecdc7652f545f4eb92'
+      PROBE_EXECUTION_COMMIT: ${{ github.sha }}
+      PROBE_APPROVED_EXECUTION_COMMIT: ${{ inputs.reviewed_execution_commit }}
+      PROBE_CELL: api36
+    defaults:
+      run:
+        shell: bash --noprofile --norc -euo pipefail {0}
+    steps:
+      - name: Fail closed before checkout unless the exact source commit is bound
+        run: |
+          python3 - <<'PY'
+          import os, re
+          if os.environ.get('PROBE_SOURCE_REPOSITORY') != 'Hatsunama/Caption-Action':
+              raise SystemExit('BLOCKED:SOURCE_REPOSITORY_MISMATCH')
+          source_commit = os.environ.get('PROBE_COMMIT', '')
+          execution_commit = os.environ.get('PROBE_EXECUTION_COMMIT', '')
+          if re.fullmatch(r'[0-9a-f]{40}', source_commit) is None:
+              raise SystemExit('BLOCKED:EXACT_RUNTIME_SOURCE_COMMIT_UNBOUND')
+          if re.fullmatch(r'[0-9a-f]{40}', execution_commit) is None or execution_commit != os.environ.get('GITHUB_SHA'):
+              raise SystemExit('BLOCKED:EXECUTION_COMMIT_MISMATCH')
+          if source_commit == execution_commit:
+              raise SystemExit('BLOCKED:SOURCE_COMMIT_MUST_DIFFER_FROM_EXECUTION')
+          approved_execution_commit = os.environ.get('PROBE_APPROVED_EXECUTION_COMMIT', '')
+          if re.fullmatch(r'[0-9a-f]{40}', approved_execution_commit) is None or approved_execution_commit != os.environ.get('GITHUB_SHA'):
+              raise SystemExit('BLOCKED:REVIEWED_EXECUTION_COMMIT_MISMATCH')
+          PY
+      - name: Checkout exact personal-source runtime without payloads or persisted credentials
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Hatsunama/Caption-Action
+          ref: ${{ env.PROBE_COMMIT }}
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: |
+            /tools/caption-muted-runtime/
+          sparse-checkout-cone-mode: false
+          submodules: false
+          lfs: false
+      # Source checkout is the sole prerequisite network access. No SDK, APK,
+      # receipt, source-archive, apt or emulator operation may precede this gate.
+      - name: Fail closed on absent exact existing-C receipt and root inventory binding
+        id: binding
+        run: python3 tools/caption-muted-runtime/inventory_runtime.py --preflight-only --binding-only
+      - name: Run offline synthetic regression tests
+        run: python3 -m unittest discover -s tools/caption-muted-runtime -p 'test_*.py' -v
+      - name: Fetch only the immutable root-reviewed download manifest
+        run: python3 tools/caption-muted-runtime/inventory_runtime.py --download-only
+      - name: Verify exact new signed bytes receipt source payload and official signer
+        run: python3 tools/caption-muted-runtime/inventory_runtime.py --preflight-only
+      - name: Install official Ubuntu emulator client-library prerequisite
+        timeout-minutes: 3
+        run: |
+          sudo -n apt-get -q update
+          apt-cache policy libpulse0
+          sudo -n apt-get --print-uris -y --no-install-recommends --no-remove install libpulse0 > "$RUNNER_TEMP/caption-inventory-libpulse-uris.txt"
+          python3 -c 'import os,sys; from pathlib import Path; sys.path.insert(0,"tools/caption-muted-runtime"); import boot_probe; print("OFFICIAL_UBUNTU_PACKAGE_URLS", boot_probe.verify_ubuntu_package_uris((Path(os.environ["RUNNER_TEMP"])/"caption-inventory-libpulse-uris.txt").read_text()))'
+          sudo -n env DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends --no-remove install libpulse0
+          dpkg-query -W -f='${Package} ${Version} ${Status}\n' libpulse0
+          rm -f "$RUNNER_TEMP/caption-inventory-libpulse-uris.txt"
+      - name: Inventory own official permission dialog and stop before any grant
+        id: inventory
+        run: python3 tools/caption-muted-runtime/inventory_runtime.py
+      - name: Validate the exact allowlisted evidence directory before upload
+        id: evidence
+        if: ${{ always() && steps.inventory.outcome != 'skipped' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, stat, xml.etree.ElementTree as ET
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']).resolve(strict=True)
+          directory = root / 'caption-record-inventory'
+          approved = {'inventory.json', 'consent-structure.xml'}
+          if not directory.exists():
+              print('No approved permission-dialog evidence was produced.')
+              raise SystemExit(0)
+          directory_info = directory.lstat()
+          if not stat.S_ISDIR(directory_info.st_mode) or directory_info.st_uid != os.getuid():
+              raise SystemExit('EVIDENCE_DIRECTORY_NOT_OWNED_REGULAR_DIRECTORY')
+          files = list(directory.iterdir())
+          names = {p.name for p in files}
+          if 'inventory.json' not in names or names - approved:
+              raise SystemExit('EVIDENCE_FILE_ALLOWLIST_MISMATCH')
+          total = 0
+          contents = {}
+          for path in files:
+              info = path.lstat()
+              if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid():
+                  raise SystemExit('EVIDENCE_NONREGULAR_OR_LINKED_FILE')
+              if not 0 < info.st_size <= 262144:
+                  raise SystemExit('EVIDENCE_FILE_SIZE_BOUND')
+              total += info.st_size
+              fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+              try:
+                  opened = os.fstat(fd)
+                  if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns):
+                      raise SystemExit('EVIDENCE_CHANGED_BEFORE_READ')
+                  contents[path.name] = os.read(fd, 262145)
+                  after = os.fstat(fd)
+                  if len(contents[path.name]) != info.st_size or (after.st_size, after.st_mtime_ns) != (info.st_size, info.st_mtime_ns):
+                      raise SystemExit('EVIDENCE_CHANGED_DURING_READ')
+              finally:
+                  os.close(fd)
+          if total >= 4 * 1024 * 1024:
+              raise SystemExit('EVIDENCE_TOTAL_SIZE_BOUND')
+          def unique_pairs(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError('duplicate key')
+                  result[key] = value
+              return result
+          def reject_constant(value):
+              raise ValueError('nonfinite JSON')
+          facts = json.loads(contents['inventory.json'].decode('utf-8'),
+                             object_pairs_hook=unique_pairs, parse_constant=reject_constant)
+          if not isinstance(facts, dict):
+              raise SystemExit('EVIDENCE_JSON_ROOT_NOT_OBJECT')
+          if facts.get('status') not in ('INVENTORY_STOPPED', 'BLOCKED', 'cleanup-failed'):
+              raise SystemExit('EVIDENCE_STATUS_UNKNOWN')
+          if any(facts.get(key) is not False for key in ('runtime_pass', 'capture_started', 'permissions_granted')):
+              raise SystemExit('EVIDENCE_NOT_NO_GRANT_INVENTORY')
+          if facts['status'] == 'INVENTORY_STOPPED':
+              if facts.get('teardownVerified') is not True or names != approved:
+                  raise SystemExit('EVIDENCE_SUCCESS_WITHOUT_CLEANUP_OR_STRUCTURE')
+          elif names != {'inventory.json'}:
+              raise SystemExit('EVIDENCE_FAILURE_HAS_UNVERIFIED_STRUCTURE')
+          if 'consent-structure.xml' in contents:
+              xml = contents['consent-structure.xml'].decode('utf-8')
+              if '<!DOCTYPE' in xml or '<!ENTITY' in xml:
+                  raise SystemExit('EVIDENCE_XML_DECLARATION_FORBIDDEN')
+              ET.fromstring(xml)
+          # The inventory runtime is responsible for constructing both files
+          # solely from its reviewed allowlisted semantic facts. This independent
+          # guard also rejects surplus files, links, invalid syntax and oversize.
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write('upload_ready=true\n')
+          print('Approved evidence files:', len(files), '; total bytes:', total)
+          PY
+      - name: Retain only filtered own-dialog facts and structure for one day
+        if: ${{ always() && steps.evidence.outputs.upload_ready == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caption-record-audio-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/caption-record-inventory/inventory.json
+            ${{ runner.temp }}/caption-record-inventory/consent-structure.xml
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9
+          include-hidden-files: false
+          overwrite: false
+      # Runtime finally owns force-stop/readback, uninstall, watchdog, guest and
+      # ADB process-group destruction, isolated HOME/SDK deletion and KVM restore.
+      # No cache, matrix, retry, paid runner, build, signing or permission grant.
