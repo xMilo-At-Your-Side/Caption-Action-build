@@ -30,7 +30,7 @@ jobs:
       PROBE_SOURCE_REPOSITORY: Hatsunama/Caption-Action
       # Exact root-reviewed runtime source commit.
       # Never substitute the organization workflow's github.sha here.
-      PROBE_COMMIT: '55d7d6b64b0a74589f891fd5e0bdf91b52377c16'
+      PROBE_COMMIT: '0b2b3e94e3842b59afcec2bf530570f1e9b1403b'
       PROBE_EXECUTION_COMMIT: ${{ github.sha }}
       PROBE_APPROVED_EXECUTION_COMMIT: ${{ inputs.reviewed_execution_commit }}
       PROBE_CELL: api36
